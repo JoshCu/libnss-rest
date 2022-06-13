@@ -33,62 +33,53 @@
     data = data + i + 1;             \
     printf("%s\n", tmp);
 
-struct url_data
+struct curl_output
 {
+    char *memory;
     size_t size;
-    char *data;
 };
 
-size_t write_data(void *ptr, size_t size, size_t nmemb, struct url_data *data)
+// stores output of CURL command into string
+static size_t writecallback(void *contents, size_t size, size_t nmemb, void *userp)
 {
-    size_t index = data->size;
-    size_t n = (size * nmemb);
-    char *tmp;
+    size_t realsize = size * nmemb;
+    struct curl_output *mem = (struct curl_output *)userp;
 
-    data->size += (size * nmemb);
-    tmp = realloc(data->data, data->size + 1); /* +1 for '\0' */
-
-    if (tmp)
+    char *ptr = realloc(mem->memory, mem->size + realsize + 1);
+    if (ptr == NULL)
     {
-        data->data = tmp;
-    }
-    else
-    {
-        if (data->data)
-        {
-            free(data->data);
-        }
-        fprintf(stderr, "Failed to allocate memory.\n");
+        syslog(LOG_ERR, "Not enough memory (realloc returned NULL)");
         return 0;
     }
 
-    memcpy((data->data + index), ptr, n);
-    data->data[data->size] = '\0';
-    return size * nmemb;
+    mem->memory = ptr;
+    memcpy(&(mem->memory[mem->size]), contents, realsize);
+    mem->size += realsize;
+    mem->memory[mem->size] = 0;
+
+    return realsize;
 }
 
 char *handle_url(char *url)
 {
     CURL *curl;
-
-    struct url_data data;
+    struct curl_output data;
     data.size = 0;
-    data.data = malloc(500); /* reasonable size initial buffer */
-    if (NULL == data.data)
+    data.memory = malloc(4096); /* reasonable size initial buffer */
+
+    if (NULL == data.memory)
     {
         fprintf(stderr, "Failed to allocate memory.\n");
         return NULL;
     }
 
-    data.data[0] = '\0';
-
+    data.memory[0] = '\0';
     CURLcode res;
-
     curl = curl_easy_init();
     if (curl)
     {
         curl_easy_setopt(curl, CURLOPT_URL, url);
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writecallback);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &data);
         res = curl_easy_perform(curl);
         if (res != CURLE_OK)
@@ -100,9 +91,9 @@ char *handle_url(char *url)
         curl_easy_cleanup(curl);
     }
     /* trim leading and trailing characters ["useful:response:here"] */
-    data.data = data.data + 2;
-    data.data[strlen(data.data) - 2] = '\0';
-    return data.data;
+    data.memory = data.memory + 2;
+    data.memory[strlen(data.memory) - 2] = '\0';
+    return data.memory;
 }
 
 // POINTERS
@@ -146,14 +137,11 @@ enum nss_status _nss_mongo_getpwnam_r(const char *name, struct passwd *result, c
                 GET_NEXT_VALUE
                 fakeUser.pw_shell = tmp;
             }
-            // free(data);
             /* example.com is redirected, so we tell libcurl to follow redirection */
             /* Perform the request, res will get the return code */
-            res = curl_easy_perform(curl);
         }
 
         /* always cleanup */
-        // free(*response_string);
         curl_easy_cleanup(curl);
 
         struct passwd *ptrfakeUser = &fakeUser;
@@ -208,14 +196,12 @@ enum nss_status _nss_mongo_getpwuid_r(__uid_t uid, struct passwd *result, char *
                 GET_NEXT_VALUE
                 fakeUser.pw_shell = tmp;
             }
-            // free(data);
             /* example.com is redirected, so we tell libcurl to follow redirection */
             /* Perform the request, res will get the return code */
             res = curl_easy_perform(curl);
         }
 
         /* always cleanup */
-        // free(*response_string);
         curl_easy_cleanup(curl);
 
         struct passwd *ptrfakeUser = &fakeUser;
