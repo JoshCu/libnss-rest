@@ -142,7 +142,7 @@ enum nss_status _nss_mongo_getpwnam_r(const char *name, struct passwd *result, c
         }
 
         /* always cleanup */
-        curl_easy_cleanup(curl);
+        // curl_easy_cleanup(curl);
 
         struct passwd *ptrfakeUser = &fakeUser;
         *result = *ptrfakeUser;
@@ -198,11 +198,11 @@ enum nss_status _nss_mongo_getpwuid_r(__uid_t uid, struct passwd *result, char *
             }
             /* example.com is redirected, so we tell libcurl to follow redirection */
             /* Perform the request, res will get the return code */
-            res = curl_easy_perform(curl);
+            // res = curl_easy_perform(curl);
         }
 
         /* always cleanup */
-        curl_easy_cleanup(curl);
+        // curl_easy_cleanup(curl);
 
         struct passwd *ptrfakeUser = &fakeUser;
         *result = *ptrfakeUser;
