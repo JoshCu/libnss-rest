@@ -9,13 +9,6 @@
 
 #define CURL_VERBOSE 0
 
-#define GROUP_DETAILS                                   \
-    syslog(LOG_INFO, "group_details");                  \
-    fakeGroup.gr_name = "fakegroup"; /* Group name.  */ \
-    fakeGroup.gr_passwd = "x";       /* Password.    */ \
-    fakeGroup.gr_gid = 12345;        /* Group ID.    */ \
-                                     // fakeGroup.gr_mem[0] = *ptrfakeUser; /* Member list. */
-
 struct curl_output
 {
     char *memory;
@@ -73,9 +66,6 @@ char *handle_url(char *url)
 
         curl_easy_cleanup(curl);
     }
-    /* trim leading and trailing characters ["useful:response:here"] */
-    data.memory = data.memory + 2;
-    data.memory[strlen(data.memory) - 2] = '\0';
     return data.memory;
 }
 
@@ -92,42 +82,39 @@ enum nss_status _nss_mongo_getpwnam_r(const char *name, struct passwd *result, c
     strcat(url, name);
 
     struct passwd fakeUser;
-    CURL *curl;
     char *data;
-    char *values[7];
-    CURLcode res;
-    curl = curl_easy_init();
-    if (curl)
+
+    data = handle_url(url);
+    syslog(LOG_INFO, "response: %s", data);
+    if (data)
     {
-        data = handle_url(url);
-        syslog(LOG_INFO, "response: %s", data);
-        if (data)
-        {
-            int i = 0;
-            int counter = 0;
-            char *start = data;
-            for (i = 0; data[i] != '\0'; i++)
-            {
-                if (data[i] == ':')
-                {
-                    data[i] = '\0';
-                    // printf("%s\n", start);
-                    values[counter] = start;
-                    start = &data[i + 1];
-                    counter++;
-                }
-            }
-            fakeUser.pw_name = values[0];
-            fakeUser.pw_passwd = values[1];
-            fakeUser.pw_uid = (__uid_t)atoi(values[2]);
-            fakeUser.pw_gid = (__gid_t)atoi(values[3]);
-            fakeUser.pw_gecos = values[4];
-            fakeUser.pw_dir = values[5];
-            fakeUser.pw_shell = values[6];
-        }
-        /* example.com is redirected, so we tell libcurl to follow redirection */
-        /* Perform the request, res will get the return code */
+        struct json_object *parsed_json;
+        parsed_json = json_tokener_parse(data);
+        struct json_object *_name;
+        struct json_object *_passwd;
+        struct json_object *_uid;
+        struct json_object *_gid;
+        struct json_object *_gecos;
+        struct json_object *_dir;
+        struct json_object *_shell;
+
+        json_object_object_get_ex(parsed_json, "pw_name", &_name);
+        json_object_object_get_ex(parsed_json, "pw_passwd", &_passwd);
+        json_object_object_get_ex(parsed_json, "pw_uid", &_uid);
+        json_object_object_get_ex(parsed_json, "pw_gid", &_gid);
+        json_object_object_get_ex(parsed_json, "pw_gecos", &_gecos);
+        json_object_object_get_ex(parsed_json, "pw_dir", &_dir);
+        json_object_object_get_ex(parsed_json, "pw_shell", &_shell);
+
+        fakeUser.pw_name = (void *)json_object_get_string(_name);
+        fakeUser.pw_passwd = (void *)json_object_get_string(_passwd);
+        fakeUser.pw_uid = json_object_get_int(_uid);
+        fakeUser.pw_gid = json_object_get_int(_gid);
+        fakeUser.pw_gecos = (void *)json_object_get_string(_gecos);
+        fakeUser.pw_dir = (void *)json_object_get_string(_dir);
+        fakeUser.pw_shell = (void *)json_object_get_string(_shell);
     }
+
     struct passwd *ptrfakeUser = &fakeUser;
     *result = *ptrfakeUser;
     retval = NSS_STATUS_SUCCESS;
@@ -155,40 +142,37 @@ enum nss_status _nss_mongo_getpwuid_r(__uid_t uid, struct passwd *result, char *
     strcat(url, struid);
 
     struct passwd fakeUser;
-    CURL *curl;
     char *data;
 
-    CURLcode res;
-    char *values[7];
-    curl = curl_easy_init();
-    if (curl)
+    data = handle_url(url);
+    syslog(LOG_INFO, "response: %s", data);
+    if (data)
     {
-        data = handle_url(url);
-        syslog(LOG_INFO, "response: %s", data);
-        if (data)
-        {
-            int i = 0;
-            int counter = 0;
-            char *start = data;
-            for (i = 0; data[i] != '\0'; i++)
-            {
-                if (data[i] == ':')
-                {
-                    data[i] = '\0';
-                    // printf("%s\n", start);
-                    values[counter] = start;
-                    start = &data[i + 1];
-                    counter++;
-                }
-            }
-            fakeUser.pw_name = values[0];
-            fakeUser.pw_passwd = values[1];
-            fakeUser.pw_uid = (__uid_t)atoi(values[2]);
-            fakeUser.pw_gid = (__gid_t)atoi(values[3]);
-            fakeUser.pw_gecos = values[4];
-            fakeUser.pw_dir = values[5];
-            fakeUser.pw_shell = values[6];
-        }
+        struct json_object *parsed_json;
+        parsed_json = json_tokener_parse(data);
+        struct json_object *_name;
+        struct json_object *_passwd;
+        struct json_object *_uid;
+        struct json_object *_gid;
+        struct json_object *_gecos;
+        struct json_object *_dir;
+        struct json_object *_shell;
+
+        json_object_object_get_ex(parsed_json, "pw_name", &_name);
+        json_object_object_get_ex(parsed_json, "pw_passwd", &_passwd);
+        json_object_object_get_ex(parsed_json, "pw_uid", &_uid);
+        json_object_object_get_ex(parsed_json, "pw_gid", &_gid);
+        json_object_object_get_ex(parsed_json, "pw_gecos", &_gecos);
+        json_object_object_get_ex(parsed_json, "pw_dir", &_dir);
+        json_object_object_get_ex(parsed_json, "pw_shell", &_shell);
+
+        fakeUser.pw_name = (void *)json_object_get_string(_name);
+        fakeUser.pw_passwd = (void *)json_object_get_string(_passwd);
+        fakeUser.pw_uid = json_object_get_int(_uid);
+        fakeUser.pw_gid = json_object_get_int(_gid);
+        fakeUser.pw_gecos = (void *)json_object_get_string(_gecos);
+        fakeUser.pw_dir = (void *)json_object_get_string(_dir);
+        fakeUser.pw_shell = (void *)json_object_get_string(_shell);
     }
     struct passwd *ptrfakeUser = &fakeUser;
     *result = *ptrfakeUser;
@@ -217,36 +201,27 @@ enum nss_status _nss_mongo_getgrgid_r(__gid_t gid, struct group *result, char *b
     strcat(url, struid);
 
     struct group fakeGroup;
-    CURL *curl;
     char *data;
-    CURLcode res;
-    char *values[3];
-    curl = curl_easy_init();
-    if (curl)
+
+    data = handle_url(url);
+    syslog(LOG_INFO, "response: %s", data);
+    if (data)
     {
-        data = handle_url(url);
-        syslog(LOG_INFO, "response: %s", data);
-        if (data)
-        {
-            int i = 0;
-            int counter = 0;
-            char *start = data;
-            for (i = 0; data[i] != '\0'; i++)
-            {
-                if (data[i] == ':')
-                {
-                    data[i] = '\0';
-                    // printf("%s\n", start);
-                    values[counter] = start;
-                    start = &data[i + 1];
-                    counter++;
-                }
-            }
-            fakeGroup.gr_name = values[0];
-            fakeGroup.gr_passwd = values[1];
-            fakeGroup.gr_gid = (__gid_t)atoi(values[2]);
-        }
+        struct json_object *parsed_json;
+        parsed_json = json_tokener_parse(data);
+        struct json_object *_name;
+        struct json_object *_passwd;
+        struct json_object *_gid;
+
+        json_object_object_get_ex(parsed_json, "gr_name", &_name);
+        json_object_object_get_ex(parsed_json, "gr_passwd", &_passwd);
+        json_object_object_get_ex(parsed_json, "gr_gid", &_gid);
+
+        fakeGroup.gr_name = (void *)json_object_get_string(_name);
+        fakeGroup.gr_passwd = (void *)json_object_get_string(_passwd);
+        fakeGroup.gr_gid = json_object_get_int(_gid);
     }
+
     struct group *ptrfakeGroup = &fakeGroup;
     *result = *ptrfakeGroup;
     retval = NSS_STATUS_SUCCESS;
@@ -262,8 +237,6 @@ cleanup:
 enum nss_status _nss_mongo_getgrnam_r(const char *name, struct group *result, char *buffer, size_t buflen, int *errnop)
 {
     int retval;
-    char filter[1024];
-
     // initiate logging
     setlogmask(LOG_UPTO(LOG_INFO));
     openlog("mongo_nss", LOG_CONS | LOG_PID | LOG_NDELAY, LOG_LOCAL1);
@@ -274,36 +247,27 @@ enum nss_status _nss_mongo_getgrnam_r(const char *name, struct group *result, ch
     strcat(url, name);
 
     struct group fakeGroup;
-    CURL *curl;
     char *data;
-    CURLcode res;
-    char *values[3];
-    curl = curl_easy_init();
-    if (curl)
+
+    data = handle_url("127.0.0.1:8000/group/name/fakegroup");
+    syslog(LOG_INFO, "response: %s", data);
+    if (data)
     {
-        data = handle_url("127.0.0.1:8000/group/name/fakegroup");
-        syslog(LOG_INFO, "response: %s", data);
-        if (data)
-        {
-            int i = 0;
-            int counter = 0;
-            char *start = data;
-            for (i = 0; data[i] != '\0'; i++)
-            {
-                if (data[i] == ':')
-                {
-                    data[i] = '\0';
-                    // printf("%s\n", start);
-                    values[counter] = start;
-                    start = &data[i + 1];
-                    counter++;
-                }
-            }
-            fakeGroup.gr_name = values[0];
-            fakeGroup.gr_passwd = values[1];
-            fakeGroup.gr_gid = (__gid_t)atoi(values[2]);
-        }
+        struct json_object *parsed_json;
+        parsed_json = json_tokener_parse(data);
+        struct json_object *_name;
+        struct json_object *_passwd;
+        struct json_object *_gid;
+
+        json_object_object_get_ex(parsed_json, "gr_name", &_name);
+        json_object_object_get_ex(parsed_json, "gr_passwd", &_passwd);
+        json_object_object_get_ex(parsed_json, "gr_gid", &_gid);
+
+        fakeGroup.gr_name = (void *)json_object_get_string(_name);
+        fakeGroup.gr_passwd = (void *)json_object_get_string(_passwd);
+        fakeGroup.gr_gid = json_object_get_int(_gid);
     }
+
     struct group *ptrfakeGroup = &fakeGroup;
     *result = *ptrfakeGroup;
     retval = NSS_STATUS_SUCCESS;
