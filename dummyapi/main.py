@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+import json
 
 app = FastAPI()
 
@@ -58,3 +59,28 @@ async def read_item(group_name: str):
     for group in groups:
         if group["gr_name"] == group_name:
             return{dict_to_string(group)}
+
+@app.get("/json/user/id/{user_id}")
+async def read_item(user_id: str):
+    for user in users:
+        if user["w_uid"] == user_id:
+            return{json.dumps(user)}
+
+
+@app.get("/json/user/name/{user_name}")
+async def read_item(user_name: str):
+    for user in users:
+        if user["w_name"] == user_name:
+            return{json.dumps(user)}
+
+@app.get("/json/group/id/{group_id}")
+async def read_item(group_id: str):
+    for group in groups:
+        if group["gr_gid"] == group_id:
+            return{json.dumps(group)}
+
+@app.get("/json/group/name/{group_name}")
+async def read_item(group_name: str):
+    for group in groups:
+        if group["gr_name"] == group_name:
+            return{json.dumps(group)}
