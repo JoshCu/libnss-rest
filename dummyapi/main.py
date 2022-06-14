@@ -38,7 +38,7 @@ async def read_item(item_id: int):
 
 @app.get("/user/id/{user_id}")
 async def read_item(user_id: int):
-    for user in jusers:
+    for user in users:
         if user["pw_uid"] == user_id:
             return JSONResponse(content=user)
 
