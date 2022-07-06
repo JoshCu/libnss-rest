@@ -57,6 +57,8 @@ char *handle_url(char *url)
         curl_easy_setopt(curl, CURLOPT_URL, url);
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writecallback);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &data);
+        curl_easy_setopt(curl, CURLOPT_USERNAME, "username");
+        curl_easy_setopt(curl, CURLOPT_PASSWORD, "password");
         res = curl_easy_perform(curl);
         if (res != CURLE_OK)
         {
@@ -78,7 +80,7 @@ enum nss_status _nss_mongo_getpwnam_r(const char *name, struct passwd *result, c
     syslog(LOG_INFO, "getpwnam");
     syslog(LOG_INFO, "user_name : %s,", name);
 
-    char url[] = "127.0.0.1:8000/user/name/";
+    char url[] = "https://host-172-16-103-228.nubes.stfc.ac.uk:81/isis/users/name/";
     strcat(url, name);
 
     struct passwd fakeUser;
@@ -138,7 +140,7 @@ enum nss_status _nss_mongo_getpwuid_r(__uid_t uid, struct passwd *result, char *
 
     char struid[50];
     sprintf(struid, "%d", uid);
-    char url[] = "127.0.0.1:8000/user/id/";
+    char url[] = "https://host-172-16-103-228.nubes.stfc.ac.uk:81/isis/users/id/";
     strcat(url, struid);
 
     struct passwd fakeUser;
@@ -197,7 +199,7 @@ enum nss_status _nss_mongo_getgrgid_r(__gid_t gid, struct group *result, char *b
 
     char struid[50];
     sprintf(struid, "%d", gid);
-    char url[] = "127.0.0.1:8000/group/id/";
+    char url[] = "https://host-172-16-103-228.nubes.stfc.ac.uk:81/isis/groups/id/";
     strcat(url, struid);
 
     struct group fakeGroup;
@@ -243,13 +245,13 @@ enum nss_status _nss_mongo_getgrnam_r(const char *name, struct group *result, ch
     syslog(LOG_INFO, "getgrnam");
     syslog(LOG_INFO, "group_name : %s,", name);
 
-    char url[] = "127.0.0.1:8000/group/name/";
+    char url[] = "https://host-172-16-103-228.nubes.stfc.ac.uk:81/isis/groups/name/";
     strcat(url, name);
 
     struct group fakeGroup;
     char *data;
 
-    data = handle_url("127.0.0.1:8000/group/name/fakegroup");
+    data = handle_url(url);
     syslog(LOG_INFO, "response: %s", data);
     if (data)
     {
