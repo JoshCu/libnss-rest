@@ -4,6 +4,7 @@
 #include <syslog.h>
 #include <string.h>
 #include <stdlib.h>
+#include <errno.h>
 #include <curl/curl.h>
 #include <json-c/json.h>
 
@@ -278,5 +279,77 @@ enum nss_status _nss_mongo_getgrnam_r(const char *name, struct group *result, ch
     retval = NSS_STATUS_NOTFOUND;
 cleanup:
     closelog();
+    return retval;
+}
+
+// group is the gid to exclude from the list
+enum nss_status _nss_mongo_initgroups_dyn(const char *user, gid_t group,
+                                          long int *start, long int *size,
+                                          gid_t **groups, long int limit,
+                                          int *errnop)
+{
+    int retval = -1;
+    // initiate logging
+    setlogmask(LOG_UPTO(LOG_INFO));
+    openlog("mongo_nss", LOG_CONS | LOG_PID | LOG_NDELAY, LOG_LOCAL1);
+    syslog(LOG_INFO, "initgroups_dyn");
+    syslog(LOG_INFO, "user_name : %s,", user);
+    
+    char url[] = "https://host-172-16-103-228.nubes.stfc.ac.uk:81/isis/usergroups/";
+    strcat(url, user);
+
+    char *data;
+
+    data = handle_url(url);
+    syslog(LOG_INFO, "response: %s", data);
+    if (data)
+    {
+        struct json_object *parsed_json;
+        parsed_json = json_tokener_parse(data);
+        struct json_object *_group_count;
+        struct json_object *_gids_array;
+
+        json_object_object_get_ex(parsed_json, "group_count", &_group_count);
+        json_object_object_get_ex(parsed_json, "gids", &_gids_array);
+
+        int group_count = json_object_get_int(_group_count);
+        int gids[group_count];
+        struct json_object * jvalue;
+        int i = 0;
+        for (i=0; i< group_count; i++){
+            jvalue = json_object_array_get_idx(_gids_array, i);
+            gids[i] = json_object_get_int(jvalue);
+        }
+        int counter = 0;
+        while (counter <= group_count - 1){
+        syslog(LOG_DEBUG, "initgroups_dyn: adding group %d\n", gids[counter]);
+        /* Too short, doubling size */
+        if(*start == *size) {
+            if(limit > 0) {
+                if(*size < limit) {
+                    *size = (limit < (*size * 2)) ? limit : (*size * 2);
+                } else {
+                    /* limit reached, tell caller to try with a bigger one */
+                    syslog(LOG_ERR, "initgroups_dyn: limit was too low\n");
+                    *errnop = ERANGE;
+                    return NSS_STATUS_TRYAGAIN;
+                }
+            } else {
+                (*size) = (*size) * 2;
+            }
+            *groups = realloc(*groups, sizeof(**groups) * (*size));
+        }
+        (*groups)[*start] = gids[counter];
+        (*start)++;
+        counter++;
+        }
+
+
+        *groups = realloc(*groups, sizeof(**groups) * (*start));
+        *size = *start;
+    }
+
+    closelog();
+    retval = NSS_STATUS_SUCCESS;
     return retval;
 }
