@@ -4,11 +4,13 @@
 #include <syslog.h>
 #include <string.h>
 #include <stdlib.h>
+#include <libconfig.h>
 #include <errno.h>
 #include <curl/curl.h>
 #include <json-c/json.h>
 
-#define CURL_VERBOSE 0
+#define CURL_VERBOSE 1
+#define CONFIG_FILE "/etc/security/mongoauth.conf"
 
 struct curl_output
 {
@@ -37,29 +39,70 @@ static size_t writecallback(void *contents, size_t size, size_t nmemb, void *use
     return realsize;
 }
 
-char *handle_url(char *url)
+char *handle_url(char *url_suffix)
 {
-    CURL *curl;
+    // // config loading fun
+    // config_t config;
+    const char *api_url, *username, *password;
+    // // initiate config parser
+    // config_init(&config);
+    // if(!config_read_file(&config, CONFIG_FILE)) {
+    //     syslog(LOG_ERR, "%s:%d - %s", config_error_file(&config), config_error_line(&config), config_error_text(&config));
+    //     goto cleanup;
+    // }
+
+    // if (!config_lookup_string(&config, "api_url", &api_url)) {
+    //     syslog(LOG_ERR, "No 'api_url' setting in configuration file.");
+    //     goto cleanup;
+    // }
+
+    // if (!config_lookup_string(&config, "username", &username)) {
+    //     syslog(LOG_ERR, "No 'username' setting in configuration file.");
+    //     goto cleanup;
+    // }
+
+    // if (!config_lookup_string(&config, "password", &password)) {
+    //     syslog(LOG_ERR, "No 'password' setting in configuration file.");
+    //     goto cleanup;
+    // }
+    // config_destroy(&config);
+    // // config loading done
+    
+    // wtf fix?
+    api_url = "https://host-172-16-103-228.nubes.stfc.ac.uk:81/isis/";
+    username = "username";
+    password = "password";
+
+
+    // create query url
+    char url[1024] = "";
+    strcat(url, api_url);
+    strcat(url, url_suffix);
+    
+    syslog(LOG_INFO, "%s", url);
+    syslog(LOG_INFO, "%s", username);
+    syslog(LOG_INFO, "%s", password);
+
     struct curl_output data;
     data.size = 0;
     data.memory = malloc(4096); /* reasonable size initial buffer */
 
     if (NULL == data.memory)
     {
-        fprintf(stderr, "Failed to allocate memory.\n");
-        return NULL;
+        syslog(LOG_ERR, "Failed to allocate memory.\n");
+        goto cleanup;
     }
-
     data.memory[0] = '\0';
     CURLcode res;
+    CURL *curl;
     curl = curl_easy_init();
     if (curl)
     {
         curl_easy_setopt(curl, CURLOPT_URL, url);
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writecallback);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &data);
-        curl_easy_setopt(curl, CURLOPT_USERNAME, "username");
-        curl_easy_setopt(curl, CURLOPT_PASSWORD, "password");
+        curl_easy_setopt(curl, CURLOPT_USERNAME, username);
+        curl_easy_setopt(curl, CURLOPT_PASSWORD, password);
         res = curl_easy_perform(curl);
         if (res != CURLE_OK)
         {
@@ -69,7 +112,14 @@ char *handle_url(char *url)
 
         curl_easy_cleanup(curl);
     }
+    closelog();
+    // config_destroy(&config);  
     return data.memory;
+cleanup:
+    closelog();
+    // config_destroy(&config);
+    return NULL;
+
 }
 
 enum nss_status _nss_mongo_getpwnam_r(const char *name, struct passwd *result, char *buffer, size_t buflen, int *errnop)
@@ -81,7 +131,7 @@ enum nss_status _nss_mongo_getpwnam_r(const char *name, struct passwd *result, c
     syslog(LOG_INFO, "getpwnam");
     syslog(LOG_INFO, "user_name : %s,", name);
 
-    char url[] = "https://host-172-16-103-228.nubes.stfc.ac.uk:81/isis/users/name/";
+    char url[1024] = "users/name/";
     strcat(url, name);
 
     struct passwd fakeUser;
@@ -141,7 +191,7 @@ enum nss_status _nss_mongo_getpwuid_r(__uid_t uid, struct passwd *result, char *
 
     char struid[50];
     sprintf(struid, "%d", uid);
-    char url[] = "https://host-172-16-103-228.nubes.stfc.ac.uk:81/isis/users/id/";
+    char url[1024] = "users/id/";
     strcat(url, struid);
 
     struct passwd fakeUser;
@@ -200,7 +250,7 @@ enum nss_status _nss_mongo_getgrgid_r(__gid_t gid, struct group *result, char *b
 
     char struid[50];
     sprintf(struid, "%d", gid);
-    char url[] = "https://host-172-16-103-228.nubes.stfc.ac.uk:81/isis/groups/id/";
+    char url[1024] = "groups/id/";
     strcat(url, struid);
 
     struct group fakeGroup;
@@ -246,7 +296,7 @@ enum nss_status _nss_mongo_getgrnam_r(const char *name, struct group *result, ch
     syslog(LOG_INFO, "getgrnam");
     syslog(LOG_INFO, "group_name : %s,", name);
 
-    char url[] = "https://host-172-16-103-228.nubes.stfc.ac.uk:81/isis/groups/name/";
+    char url[1024] = "groups/name/";
     strcat(url, name);
 
     struct group fakeGroup;
@@ -295,7 +345,7 @@ enum nss_status _nss_mongo_initgroups_dyn(const char *user, gid_t group,
     syslog(LOG_INFO, "initgroups_dyn");
     syslog(LOG_INFO, "user_name : %s,", user);
     
-    char url[] = "https://host-172-16-103-228.nubes.stfc.ac.uk:81/isis/usergroups/";
+    char url[1024] = "usergroups/";
     strcat(url, user);
 
     char *data;

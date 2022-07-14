@@ -1,2 +1,2 @@
 #!/bin/bash
-yum install -y gcc libcurl-devel json-c-devel
+yum install -y gcc libcurl-devel json-c-devel libconfig-devel
