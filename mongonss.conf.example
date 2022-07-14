@@ -1,0 +1,7 @@
+# url MUST include trailing / AND the tag for the facility
+# e.g. "https://interface.api.url/isis/" or "https://interface.api.url/clf/"
+api_url = "https://host-172-16-103-228.nubes.stfc.ac.uk:81/isis/"
+
+# username and password for the API, NOT the eve instance
+username = "username"
+password = "password"

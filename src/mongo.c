@@ -10,7 +10,7 @@
 #include <json-c/json.h>
 
 #define CURL_VERBOSE 1
-#define CONFIG_FILE "/etc/security/mongoauth.conf"
+#define CONFIG_FILE "/etc/security/mongonss.conf"
 
 // Structure to hold the response the curl command
 struct curl_output

@@ -1,1 +1,0 @@
-The api needs python 3.8+, uvicorn and fastapi pip packages
