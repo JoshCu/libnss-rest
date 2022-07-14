@@ -1,0 +1,1 @@
+https://github.com/agamez/libnss-sqlite3/blob/85c0a0e9f79b103653dd8467f49d7a96065fe67c/groups.c#L307
