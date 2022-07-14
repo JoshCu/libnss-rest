@@ -72,9 +72,7 @@ char *handle_url(char *url_suffix)
     strcat(url, api_url);
     strcat(url, url_suffix);
     
-    syslog(LOG_INFO, "%s", url);
-    syslog(LOG_INFO, "%s", username);
-    syslog(LOG_INFO, "%s", password);
+    syslog(LOG_INFO, "query url : %s", url);
 
     struct curl_output data;
     data.size = 0;
@@ -97,11 +95,13 @@ char *handle_url(char *url_suffix)
         curl_easy_setopt(curl, CURLOPT_USERNAME, username);
         curl_easy_setopt(curl, CURLOPT_PASSWORD, password);
         res = curl_easy_perform(curl);
+        syslog(LOG_INFO, "curl response : %d", res);
         if (res != CURLE_OK)
         {
             fprintf(stderr, "curl_easy_perform() failed: %s\n",
                     curl_easy_strerror(res));
         }
+
 
         curl_easy_cleanup(curl);
     }
@@ -132,8 +132,16 @@ enum nss_status _nss_mongo_getpwnam_r(const char *name, struct passwd *result, c
 
     data = handle_url(url);
     syslog(LOG_INFO, "response: %s", data);
-    if (data)
+    syslog(LOG_INFO, "response length: %d", strlen(data));
+    
+    // for some reason none of these work
+    // if (data)
+    // if (data != "null")
+    // if (data != '\0')
+    // printing response to string prints "response: null"
+    if (strlen(data) > 4)
     {
+        syslog(LOG_INFO, "data is real: %s", data);
         struct json_object *parsed_json;
         parsed_json = json_tokener_parse(data);
         struct json_object *_name;
@@ -159,13 +167,12 @@ enum nss_status _nss_mongo_getpwnam_r(const char *name, struct passwd *result, c
         fakeUser.pw_gecos = (void *)json_object_get_string(_gecos);
         fakeUser.pw_dir = (void *)json_object_get_string(_dir);
         fakeUser.pw_shell = (void *)json_object_get_string(_shell);
+
+        struct passwd *ptrfakeUser = &fakeUser;
+        *result = *ptrfakeUser;
+        retval = NSS_STATUS_SUCCESS;
+        goto cleanup;
     }
-
-    struct passwd *ptrfakeUser = &fakeUser;
-    *result = *ptrfakeUser;
-    retval = NSS_STATUS_SUCCESS;
-    goto cleanup;
-
     retval = NSS_STATUS_NOTFOUND;
 cleanup:
     closelog();
@@ -192,7 +199,7 @@ enum nss_status _nss_mongo_getpwuid_r(__uid_t uid, struct passwd *result, char *
 
     data = handle_url(url);
     syslog(LOG_INFO, "response: %s", data);
-    if (data)
+    if (strlen(data) > 4)
     {
         struct json_object *parsed_json;
         parsed_json = json_tokener_parse(data);
@@ -219,16 +226,15 @@ enum nss_status _nss_mongo_getpwuid_r(__uid_t uid, struct passwd *result, char *
         fakeUser.pw_gecos = (void *)json_object_get_string(_gecos);
         fakeUser.pw_dir = (void *)json_object_get_string(_dir);
         fakeUser.pw_shell = (void *)json_object_get_string(_shell);
-    }
-    struct passwd *ptrfakeUser = &fakeUser;
-    *result = *ptrfakeUser;
-    retval = NSS_STATUS_SUCCESS;
-    goto cleanup;
 
+        struct passwd *ptrfakeUser = &fakeUser;
+        *result = *ptrfakeUser;
+        retval = NSS_STATUS_SUCCESS;
+        goto cleanup;
+    }
     retval = NSS_STATUS_NOTFOUND;
 cleanup:
     closelog();
-
     return retval;
 }
 
@@ -251,7 +257,7 @@ enum nss_status _nss_mongo_getgrgid_r(__gid_t gid, struct group *result, char *b
 
     data = handle_url(url);
     syslog(LOG_INFO, "response: %s", data);
-    if (data)
+    if (strlen(data) > 4)
     {
         struct json_object *parsed_json;
         parsed_json = json_tokener_parse(data);
@@ -266,17 +272,16 @@ enum nss_status _nss_mongo_getgrgid_r(__gid_t gid, struct group *result, char *b
         fakeGroup.gr_name = (void *)json_object_get_string(_name);
         fakeGroup.gr_passwd = (void *)json_object_get_string(_passwd);
         fakeGroup.gr_gid = json_object_get_int(_gid);
-    }
 
-    struct group *ptrfakeGroup = &fakeGroup;
-    *result = *ptrfakeGroup;
-    retval = NSS_STATUS_SUCCESS;
-    goto cleanup;
+        struct group *ptrfakeGroup = &fakeGroup;
+        *result = *ptrfakeGroup;
+        retval = NSS_STATUS_SUCCESS;
+        goto cleanup;
+    }
 
     retval = NSS_STATUS_NOTFOUND;
 cleanup:
     closelog();
-
     return retval;
 }
 
@@ -297,7 +302,7 @@ enum nss_status _nss_mongo_getgrnam_r(const char *name, struct group *result, ch
 
     data = handle_url(url);
     syslog(LOG_INFO, "response: %s", data);
-    if (data)
+    if (strlen(data) > 4)
     {
         struct json_object *parsed_json;
         parsed_json = json_tokener_parse(data);
@@ -312,12 +317,12 @@ enum nss_status _nss_mongo_getgrnam_r(const char *name, struct group *result, ch
         fakeGroup.gr_name = (void *)json_object_get_string(_name);
         fakeGroup.gr_passwd = (void *)json_object_get_string(_passwd);
         fakeGroup.gr_gid = json_object_get_int(_gid);
-    }
 
-    struct group *ptrfakeGroup = &fakeGroup;
-    *result = *ptrfakeGroup;
-    retval = NSS_STATUS_SUCCESS;
-    goto cleanup;
+        struct group *ptrfakeGroup = &fakeGroup;
+        *result = *ptrfakeGroup;
+        retval = NSS_STATUS_SUCCESS;
+        goto cleanup;
+    }
 
     retval = NSS_STATUS_NOTFOUND;
 cleanup:
@@ -326,10 +331,8 @@ cleanup:
 }
 
 // group is the gid to exclude from the list
-enum nss_status _nss_mongo_initgroups_dyn(const char *user, gid_t group,
-                                          long int *start, long int *size,
-                                          gid_t **groups, long int limit,
-                                          int *errnop)
+enum nss_status _nss_mongo_initgroups_dyn(const char *user, gid_t group, long int *start, long int *size,
+                                          gid_t **groups, long int limit, int *errnop)
 {
     int retval = -1;
     // initiate logging
@@ -345,7 +348,7 @@ enum nss_status _nss_mongo_initgroups_dyn(const char *user, gid_t group,
 
     data = handle_url(url);
     syslog(LOG_INFO, "response: %s", data);
-    if (data)
+    if (strlen(data) > 4)
     {
         struct json_object *parsed_json;
         parsed_json = json_tokener_parse(data);
@@ -388,9 +391,12 @@ enum nss_status _nss_mongo_initgroups_dyn(const char *user, gid_t group,
 
         *groups = realloc(*groups, sizeof(**groups) * (*start));
         *size = *start;
+        retval = NSS_STATUS_SUCCESS;
+        goto cleanup;
     }
 
+    retval = NSS_STATUS_NOTFOUND;
+cleanup:
     closelog();
-    retval = NSS_STATUS_SUCCESS;
     return retval;
 }
