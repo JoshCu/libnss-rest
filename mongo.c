@@ -41,38 +41,31 @@ static size_t writecallback(void *contents, size_t size, size_t nmemb, void *use
 
 char *handle_url(char *url_suffix)
 {
-    // // config loading fun
-    // config_t config;
+    // config loading fun
+    config_t config;
     const char *api_url, *username, *password;
-    // // initiate config parser
-    // config_init(&config);
-    // if(!config_read_file(&config, CONFIG_FILE)) {
-    //     syslog(LOG_ERR, "%s:%d - %s", config_error_file(&config), config_error_line(&config), config_error_text(&config));
-    //     goto cleanup;
-    // }
+    // initiate config parser
+    config_init(&config);
+    if(!config_read_file(&config, CONFIG_FILE)) {
+        syslog(LOG_ERR, "%s:%d - %s", config_error_file(&config), config_error_line(&config), config_error_text(&config));
+        goto cleanup;
+    }
 
-    // if (!config_lookup_string(&config, "api_url", &api_url)) {
-    //     syslog(LOG_ERR, "No 'api_url' setting in configuration file.");
-    //     goto cleanup;
-    // }
+    if (!config_lookup_string(&config, "api_url", &api_url)) {
+        syslog(LOG_ERR, "No 'api_url' setting in configuration file.");
+        goto cleanup;
+    }
 
-    // if (!config_lookup_string(&config, "username", &username)) {
-    //     syslog(LOG_ERR, "No 'username' setting in configuration file.");
-    //     goto cleanup;
-    // }
+    if (!config_lookup_string(&config, "username", &username)) {
+        syslog(LOG_ERR, "No 'username' setting in configuration file.");
+        goto cleanup;
+    }
 
-    // if (!config_lookup_string(&config, "password", &password)) {
-    //     syslog(LOG_ERR, "No 'password' setting in configuration file.");
-    //     goto cleanup;
-    // }
-    // config_destroy(&config);
-    // // config loading done
-    
-    // wtf fix?
-    api_url = "https://host-172-16-103-228.nubes.stfc.ac.uk:81/isis/";
-    username = "username";
-    password = "password";
-
+    if (!config_lookup_string(&config, "password", &password)) {
+        syslog(LOG_ERR, "No 'password' setting in configuration file.");
+        goto cleanup;
+    }
+    // config loading done
 
     // create query url
     char url[1024] = "";
@@ -113,11 +106,11 @@ char *handle_url(char *url_suffix)
         curl_easy_cleanup(curl);
     }
     closelog();
-    // config_destroy(&config);  
+    config_destroy(&config);
     return data.memory;
 cleanup:
     closelog();
-    // config_destroy(&config);
+    config_destroy(&config);
     return NULL;
 
 }
