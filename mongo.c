@@ -306,13 +306,11 @@ enum nss_status _nss_mongo_initgroups_dyn(const char *user, gid_t group,
     {
         struct json_object *parsed_json;
         parsed_json = json_tokener_parse(data);
-        struct json_object *_group_count;
         struct json_object *_gids_array;
 
-        json_object_object_get_ex(parsed_json, "group_count", &_group_count);
         json_object_object_get_ex(parsed_json, "gids", &_gids_array);
 
-        int group_count = json_object_get_int(_group_count);
+        int group_count = json_object_array_length(_gids_array);
         int gids[group_count];
         struct json_object * jvalue;
         int i = 0;
