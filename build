@@ -1,2 +1,2 @@
 #!/bin/bash
-gcc -fPIC -shared -o libnss_mongo.so.2 -lcurl -ljson-c -Wl,-soname,libnss_mongo.so.2 mongo.c
+gcc -fPIC -shared -o target/usr/lib64/libnss_mongo.so.2 -lcurl -lconfig -ljson-c -Wl,-soname,libnss_mongo.so.2 src/mongo.c
