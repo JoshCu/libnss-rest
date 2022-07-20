@@ -33,10 +33,9 @@ https://github.com/agamez/libnss-sqlite3/blob/85c0a0e9f79b103653dd8467f49d7a9606
 ## Packaging
 ------
 This is done using fpm, after you have run build_module.sh to create and populate the "target" directory.    
-You can install fpm on centos 7 using the commands below.
+You can install fpm on centos 7 using the command below.
 ```
-yum install ruby-devel gcc make rpm-build rubygems
-gem install --no-document fpm -v 0.4
+yum install -y ruby-devel gcc make rpm-build rubygems && gem install --no-ri --no-rdoc ffi -v 1.12 && gem install --no-ri --no-rdoc fpm -v 1.11.0 && gem install --no-ri --no-rdoc fpm -v 1.4.0
 ```
 For other operating systems, check here -> https://fpm.readthedocs.io/en/latest/installing.html
 ```
