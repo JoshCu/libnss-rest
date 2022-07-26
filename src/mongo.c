@@ -271,7 +271,7 @@ enum nss_status _nss_mongo_getgrnam_r(const char *name, struct group *result, ch
 
     struct group fakeGroup;
     char *data;
-    char **members = malloc(4064);
+    char **members = malloc(4096);
 
     data = handle_url(url);
     syslog(LOG_INFO, "response: %s", data);
@@ -345,7 +345,7 @@ enum nss_status _nss_mongo_getgrgid_r(__gid_t gid, struct group *result, char *b
 
     struct group fakeGroup;
     char *data;
-    char **members = malloc(4064);
+    char **members = malloc(4096);
 
     data = handle_url(url);
     syslog(LOG_INFO, "response: %s", data);
