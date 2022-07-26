@@ -70,7 +70,7 @@ char *handle_url(char *url_suffix)
         goto cleanup;
     }
     // Config loading done
-
+    long response_code;
     // Create query url
     char url[1024] = "";
     strcat(url, api_url);
@@ -109,6 +109,12 @@ char *handle_url(char *url_suffix)
             fprintf(stderr, "curl_easy_perform() failed: %s\n",
                     curl_easy_strerror(res));
         }
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
+        syslog(LOG_INFO, "response code  : %d", response_code);
+        if (response_code != 200){
+            data.memory = NULL;
+        }
+
         curl_easy_cleanup(curl);
     }
     closelog();
@@ -119,7 +125,7 @@ cleanup:
     config_destroy(&config);
     // Curling the api returns string "null" when no user is found
     // We must also return string null to match behaviour when config is broken
-    return "null";
+    return NULL;
 
 }
 
@@ -137,14 +143,11 @@ enum nss_status _nss_mongo_getpwnam_r(const char *name, struct passwd *result, c
     char url[1024] = "users/name/";
     strcat(url, name);
 
-    // Create a temporary user struct
-    struct passwd TempUser;
     char *data;
-
+    syslog(LOG_INFO, "buflen: %d", buflen);
     data = handle_url(url);
     syslog(LOG_INFO, "response: %s", data);
-
-    if (strcmp(data, "null"))
+    if (data != NULL)
     {
         // Delare json objects for each variable
         struct json_object *parsed_json;
@@ -166,21 +169,14 @@ enum nss_status _nss_mongo_getpwnam_r(const char *name, struct passwd *result, c
         json_object_object_get_ex(parsed_json, "pw_dir", &_dir);
         json_object_object_get_ex(parsed_json, "pw_shell", &_shell);
 
-        // Fill out temporary user struct
-        // (void *) trickery because json object returns are constants
-        TempUser.pw_name = (void *)json_object_get_string(_name);
-        TempUser.pw_passwd = (void *)json_object_get_string(_passwd);
-        TempUser.pw_uid = json_object_get_int(_uid);
-        TempUser.pw_gid = json_object_get_int(_gid);
-        TempUser.pw_gecos = (void *)json_object_get_string(_gecos);
-        TempUser.pw_dir = (void *)json_object_get_string(_dir);
-        TempUser.pw_shell = (void *)json_object_get_string(_shell);
+        strcpy(result->pw_name, json_object_get_string(_name));
+        strcpy(result->pw_passwd ,json_object_get_string(_passwd));
+        result->pw_uid = json_object_get_int(_uid);
+        result->pw_gid = json_object_get_int(_gid);
+        strcpy(result->pw_gecos,json_object_get_string(_gecos));
+        strcpy(result->pw_dir,json_object_get_string(_dir));
+        strcpy(result->pw_shell,json_object_get_string(_shell));
 
-        // Create a pointer to the temporary user
-        // Then make result pointer point to temporary pointer location
-        // Frazer pls fix this
-        struct passwd *ptrTempUser = &TempUser;
-        *result = *ptrTempUser;
         retval = NSS_STATUS_SUCCESS;
         goto cleanup;
     }
@@ -206,12 +202,11 @@ enum nss_status _nss_mongo_getpwuid_r(__uid_t uid, struct passwd *result, char *
     char url[1024] = "users/id/";
     strcat(url, struid);
 
-    struct passwd TempUser;
     char *data;
 
     data = handle_url(url);
     syslog(LOG_INFO, "response: %s", data);
-    if (strcmp(data, "null"))
+    if (data != NULL)
     {
         // Delare json objects for each variable
         struct json_object *parsed_json;
@@ -233,19 +228,14 @@ enum nss_status _nss_mongo_getpwuid_r(__uid_t uid, struct passwd *result, char *
         json_object_object_get_ex(parsed_json, "pw_dir", &_dir);
         json_object_object_get_ex(parsed_json, "pw_shell", &_shell);
 
-        // Fill out temporary user struct
-        // (void *) trickery because json object returns are constants
-        TempUser.pw_name = (void *)json_object_get_string(_name);
-        TempUser.pw_passwd = (void *)json_object_get_string(_passwd);
-        TempUser.pw_uid = json_object_get_int(_uid);
-        TempUser.pw_gid = json_object_get_int(_gid);
-        TempUser.pw_gecos = (void *)json_object_get_string(_gecos);
-        TempUser.pw_dir = (void *)json_object_get_string(_dir);
-        TempUser.pw_shell = (void *)json_object_get_string(_shell);
+        strcpy(result->pw_name, json_object_get_string(_name));
+        strcpy(result->pw_passwd ,json_object_get_string(_passwd));
+        result->pw_uid = json_object_get_int(_uid);
+        result->pw_gid = json_object_get_int(_gid);
+        strcpy(result->pw_gecos,json_object_get_string(_gecos));
+        strcpy(result->pw_dir,json_object_get_string(_dir));
+        strcpy(result->pw_shell,json_object_get_string(_shell));
 
-        // Frazer pls fix this
-        struct passwd *ptrTempUser = &TempUser;
-        *result = *ptrTempUser;
         retval = NSS_STATUS_SUCCESS;
         goto cleanup;
     }
@@ -275,7 +265,7 @@ enum nss_status _nss_mongo_getgrnam_r(const char *name, struct group *result, ch
 
     data = handle_url(url);
     syslog(LOG_INFO, "response: %s", data);
-    if (strcmp(data, "null"))
+    if (data != NULL)
     {
         // Delare json objects for each variable
         struct json_object *parsed_json;
@@ -307,16 +297,11 @@ enum nss_status _nss_mongo_getgrnam_r(const char *name, struct group *result, ch
         json_object_object_get_ex(parsed_json, "gr_passwd", &_passwd);
         json_object_object_get_ex(parsed_json, "gr_gid", &_gid);
 
-        // Fill out temporary user struct
-        // (void *) trickery because json object returns are constants
-        fakeGroup.gr_name = (void *)json_object_get_string(_name);
-        fakeGroup.gr_passwd = (void *)json_object_get_string(_passwd);
-        fakeGroup.gr_gid = json_object_get_int(_gid);
-        fakeGroup.gr_mem = members;
+        result->gr_name = (void *)json_object_get_string(_name);
+        result->gr_passwd = (void *)json_object_get_string(_passwd);
+        result->gr_gid = json_object_get_int(_gid);
+        result->gr_mem = members;
 
-        // Frazer pls fix this
-        struct group *ptrfakeGroup = &fakeGroup;
-        *result = *ptrfakeGroup;
         retval = NSS_STATUS_SUCCESS;
         goto cleanup;
     }
@@ -343,13 +328,12 @@ enum nss_status _nss_mongo_getgrgid_r(__gid_t gid, struct group *result, char *b
     char url[1024] = "groups/id/";
     strcat(url, struid);
 
-    struct group fakeGroup;
     char *data;
     char **members = malloc(4096);
 
     data = handle_url(url);
     syslog(LOG_INFO, "response: %s", data);
-    if (strcmp(data, "null"))
+    if (data != NULL)
     {
         // Delare json objects for each variable
         struct json_object *parsed_json;
@@ -381,16 +365,11 @@ enum nss_status _nss_mongo_getgrgid_r(__gid_t gid, struct group *result, char *b
         json_object_object_get_ex(parsed_json, "gr_passwd", &_passwd);
         json_object_object_get_ex(parsed_json, "gr_gid", &_gid);
 
-        // Fill out temporary user struct
-        // (void *) trickery because json object returns are constants
-        fakeGroup.gr_name = (void *)json_object_get_string(_name);
-        fakeGroup.gr_passwd = (void *)json_object_get_string(_passwd);
-        fakeGroup.gr_gid = json_object_get_int(_gid);
-        fakeGroup.gr_mem = members;
+        result->gr_name = (void *)json_object_get_string(_name);
+        result->gr_passwd = (void *)json_object_get_string(_passwd);
+        result->gr_gid = json_object_get_int(_gid);
+        result->gr_mem = members;
 
-        // Frazer pls fix this
-        struct group *ptrfakeGroup = &fakeGroup;
-        *result = *ptrfakeGroup;
         retval = NSS_STATUS_SUCCESS;
         goto cleanup;
     }
