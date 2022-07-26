@@ -270,6 +270,7 @@ enum nss_status _nss_mongo_getgrnam_r(const char *name, struct group *result, ch
     strcat(url, name);
 
     struct group fakeGroup;
+    fakeGroup.gr_mem = malloc(4000);
     char *data;
 
     data = handle_url(url);
@@ -282,6 +283,29 @@ enum nss_status _nss_mongo_getgrnam_r(const char *name, struct group *result, ch
         struct json_object *_name;
         struct json_object *_passwd;
         struct json_object *_gid;
+        struct json_object *_mems_array;
+
+        // Import values into json object
+        json_object_object_get_ex(parsed_json, "gr_mem", &_mems_array);
+
+        // Get the number of groups returned and create an array of that size
+        int member_count = json_object_array_length(_mems_array);
+        char *members[member_count];
+
+        // Temporary json object to hold an entry at a given index in the array
+        struct json_object * jvalue;
+
+        // Loop over the json array to extract values into gids array
+        int i;
+        for (i=0; i< member_count; i++){
+            syslog(LOG_INFO, "m %d", i);
+            jvalue = json_object_array_get_idx(_mems_array, i);
+            //members[i] = malloc(strlen(json_object_get_string(jvalue)) + 1);
+            syslog(LOG_INFO, "m %s", json_object_get_string(jvalue));
+            members[i] = (void *)json_object_get_string(jvalue);
+            //strcpy(members[i],json_object_get_string(jvalue));
+        }
+        syslog(LOG_INFO, "member at 5: %s", members[4]);
 
         // Import values into json objects
         json_object_object_get_ex(parsed_json, "gr_name", &_name);
@@ -293,7 +317,8 @@ enum nss_status _nss_mongo_getgrnam_r(const char *name, struct group *result, ch
         fakeGroup.gr_name = (void *)json_object_get_string(_name);
         fakeGroup.gr_passwd = (void *)json_object_get_string(_passwd);
         fakeGroup.gr_gid = json_object_get_int(_gid);
-
+        fakeGroup.gr_mem = members;
+        syslog(LOG_INFO, "member at 5: %s", fakeGroup.gr_mem[4]);
         // Frazer pls fix this
         struct group *ptrfakeGroup = &fakeGroup;
         *result = *ptrfakeGroup;
