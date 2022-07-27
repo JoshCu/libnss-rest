@@ -12,6 +12,7 @@
 #define CURL_VERBOSE 1
 #define CONFIG_FILE "/etc/security/mongonss.conf"
 #define CHAR_POINTER_LENGTH sizeof(char *)
+#define DATA_FIXED_LENGTH 58
 
 // Structure to hold the response the curl command
 struct curl_output
@@ -104,11 +105,9 @@ char *handle_url(char *url_suffix)
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &data);
         curl_easy_setopt(curl, CURLOPT_USERNAME, username);
         curl_easy_setopt(curl, CURLOPT_PASSWORD, password);
-        syslog(LOG_INFO, "---------#######----------------1----------------------------------");
         res = curl_easy_perform(curl);
         syslog(LOG_INFO, "curl response : %d", res);
         syslog(LOG_INFO, "size : %d", data.size);
-        syslog(LOG_INFO, "---------#######----------------2----------------------------------");
         // This response is not a http status code
         // It's just from the curl command library
         // Https://github.com/curl/curl/blob/master/include/curl/curl.h
@@ -117,25 +116,23 @@ char *handle_url(char *url_suffix)
             fprintf(stderr, "curl_easy_perform() failed: %s\n",
                     curl_easy_strerror(res));
         }
-        syslog(LOG_INFO, "---------#######----------------3----------------------------------");
         curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
         syslog(LOG_INFO, "response code  : %d", response_code);
-        syslog(LOG_INFO, "---------#######----------------4----------------------------------");
+        // TODO if 500 should really try again once
+        //  I've seen the server 500 for unrelated reasons
         if (response_code != 200)
         {
             data.memory = NULL;
         }
 
         curl_easy_cleanup(curl);
-        syslog(LOG_INFO, "---------#######----------------5----------------------------------");
     }
-    syslog(LOG_INFO, "---------#######----------------6----------------------------------");
+    // This could do with some improving,
+    // Also data should really be freed up here
     config_destroy(&config);
     return data.memory;
 cleanup:
     config_destroy(&config);
-    // Curling the api returns string "null" when no user is found
-    // We must also return string null to match behaviour when config is broken
     return NULL;
 }
 
@@ -144,7 +141,6 @@ enum nss_status populate_user_data(char *data, struct passwd *result, char *buff
     int retval;
     // Delare json objects for each variable
     struct json_object *parsed_json;
-    parsed_json = json_tokener_parse(data);
     struct json_object *_name;
     struct json_object *_passwd;
     struct json_object *_uid;
@@ -153,6 +149,7 @@ enum nss_status populate_user_data(char *data, struct passwd *result, char *buff
     struct json_object *_dir;
     struct json_object *_shell;
 
+    parsed_json = json_tokener_parse(data);
     // Import values into json objects
     json_object_object_get_ex(parsed_json, "pw_name", &_name);
     json_object_object_get_ex(parsed_json, "pw_passwd", &_passwd);
@@ -209,11 +206,8 @@ cleanup:
 
 enum nss_status populate_group_data(char *data, struct group *result, char *buffer, size_t buflen, int *errnop)
 {
-    setlogmask(LOG_UPTO(LOG_INFO));
-    openlog("mongo_nss", LOG_CONS | LOG_PID | LOG_NDELAY, LOG_LOCAL1);
     syslog(LOG_INFO, "populate_group_data ");
     syslog(LOG_INFO, "buflen : %d,", buflen);
-    syslog(LOG_INFO, "-------------------------------1----------------------------------");
     int retval;
     // Delare json objects for each variable
     struct json_object *parsed_json;
@@ -222,42 +216,16 @@ enum nss_status populate_group_data(char *data, struct group *result, char *buff
     struct json_object *_gid;
     struct json_object *_mems_array;
     parsed_json = json_tokener_parse(data);
-    syslog(LOG_INFO, "-------------------------------2----------------------------------");
-
+    syslog(LOG_INFO, "json data response length  : %d", strlen(data));
     // Import values into json objects
     json_object_object_get_ex(parsed_json, "gr_name", &_name);
     json_object_object_get_ex(parsed_json, "gr_mem", &_mems_array);
     json_object_object_get_ex(parsed_json, "gr_passwd", &_passwd);
     json_object_object_get_ex(parsed_json, "gr_gid", &_gid);
 
-    syslog(LOG_INFO, "-------------------------------3----------------------------------");
-
     int name_length = strlen((char *)json_object_get_string(_name)) + 1;
-    syslog(LOG_INFO, "-------------------------------4----------------------------------");
     int passwd_length = strlen((char *)json_object_get_string(_passwd)) + 1;
-    syslog(LOG_INFO, "-------------------------------5----------------------------------");
-    int member_count = json_object_array_length(_mems_array);
-    syslog(LOG_INFO, "-------------------------------6----------------------------------");
-    syslog(LOG_INFO, "-------------------------------------------------------------------");
-    syslog(LOG_INFO, "name_length : %d,", name_length);
-    syslog(LOG_INFO, "passwd_length : %d,", passwd_length);
-    syslog(LOG_INFO, "member_count : %d,", member_count);
-    syslog(LOG_INFO, "CHAR_POINTER_LENGTH : %d,", CHAR_POINTER_LENGTH);
-    syslog(LOG_INFO, "member pointer array length : %d,", member_count * (CHAR_POINTER_LENGTH));
     int total_length = name_length + passwd_length;
-    syslog(LOG_INFO, "total_length : %d,", total_length);
-    syslog(LOG_INFO, "####################################################################");
-
-    /* we need enough memory in the buffer for the pointer array, and the names of all the members:
-     * Technically we can derive the members name size from the memory.size returned by curl
-     * The maths for this is more complex than just checking if we have space as we go
-     * __________________________________________________
-     * ...|@1|@2|@3|...|NULL|member1|member2|member3|...
-     * --------------------------------------------------
-     *    ^ gr_mem
-     */
-    // Temporary json object to hold an entry at a given index in the array
-    struct json_object *jvalue;
 
     if (buflen < total_length)
     {
@@ -270,37 +238,60 @@ enum nss_status populate_group_data(char *data, struct group *result, char *buff
     strcpy(buffer, json_object_get_string(_name));
     result->gr_name = buffer;
     buffer += name_length;
-    buflen -= name_length;
     strcpy(buffer, json_object_get_string(_passwd));
     result->gr_passwd = buffer;
     buffer += passwd_length;
-    buflen -= passwd_length;
 
-    // // ARRAY FUN BELOW
-    char **ptr_area = (char **)buffer;
-    int ptr_area_size = (member_count + 1) * CHAR_POINTER_LENGTH;
-    char *next_member = buffer + ptr_area_size;
-    buflen -= ptr_area_size;
-    // // // Loop over the json array to extract values into members array
-    int i;
-    for (i = 0; i < member_count; i++)
+    int member_count = json_object_array_length(_mems_array);
+
+    if (member_count > 0)
     {
-        jvalue = json_object_array_get_idx(_mems_array, i);
-        int member_length = strlen(json_object_get_string(jvalue)) + 1;
-        if (buflen < member_count)
+        char struid[50];
+        sprintf(struid, "%d", json_object_get_int(_gid));
+        int gid_as_str_length = strlen(struid);
+
+        // We want to enter info in the buffer like below, to do that we need to know we have space
+        //__________________________________________________
+        // ...|@1|@2|@3|...|NULL|member1|member2|member3|...
+        // --------------------------------------------------
+        //    ^ gr_mem
+        // We can calculate the memory we need from the length of the data string
+        // {"gr_name": "RB1610093", "gr_passwd": "x", "gr_gid": 1757409, "gr_mem": ["jr1102099", "cb7411", "ww1019511", "jc1104039", "ch1044550", "iw1214"]}
+        // {"gr_name": "", "gr_passwd": "", "gr_gid": , "gr_mem": []} this part is fixed at 58 chars long -> DATA_FIXED_LENGTH
+        //  we know gr_name, gr_passwd and gr_gid length. If subrtact it now we just need to calculate the length of this
+        // "jr1102099", "cb7411", "ww1019511", "jc1104039", "ch1044550", "iw1214"
+        // now we need to subrtact the ", " which is four characters per member then - 2
+        // we need to add space for a null byte after each member so it's actually
+        // three characters per member then -2. The example above gives us 54 characters for the members
+
+        int member_data_length = (member_count * 3) - 2;
+        int ptr_area_size = (member_count + 1) * CHAR_POINTER_LENGTH;
+        int needed_memory = strlen(data) - DATA_FIXED_LENGTH - (name_length - 1) - (passwd_length - 1) - gid_as_str_length - member_data_length;
+        total_length += ptr_area_size + sizeof(NULL) + needed_memory;
+
+        if (buflen < total_length)
         {
             *errnop = ERANGE;
             retval = NSS_STATUS_TRYAGAIN;
-            goto cleanup;
         }
-        strcpy(next_member, json_object_get_string(jvalue));
-        ptr_area[i] = next_member;
-        buflen -= member_length;
-        next_member += member_length;
+        // ARRAY FUN BELOW
+        char **ptr_area = (char **)buffer;
+        char *next_member = buffer + ptr_area_size;
+        //  Temporary json object to hold an entry at a given index in the array
+        struct json_object *jvalue;
+        // Loop over the json array to store
+        int i;
+        for (i = 0; i < member_count; i++)
+        {
+            jvalue = json_object_array_get_idx(_mems_array, i);
+            int member_length = strlen(json_object_get_string(jvalue)) + 1;
+            strcpy(next_member, json_object_get_string(jvalue));
+            ptr_area[i] = next_member;
+            next_member += member_length;
+        }
+        ptr_area[i] = NULL;
+        result->gr_mem = (char **)buffer;
     }
-    ptr_area[i] = NULL;
-
-    result->gr_mem = (char **)buffer;
 
     retval = NSS_STATUS_SUCCESS;
 cleanup:
