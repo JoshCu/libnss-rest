@@ -277,30 +277,30 @@ enum nss_status populate_group_data(char *data, struct group *result, char *buff
     buflen -= passwd_length;
 
     // // ARRAY FUN BELOW
-    // char **ptr_area = (char **)buffer;
-    // int ptr_area_size = (member_count + 1) * CHAR_POINTER_LENGTH;
-    // char *next_member = buffer + ptr_area_size;
-    // buflen -= ptr_area_size;
+    char **ptr_area = (char **)buffer;
+    int ptr_area_size = (member_count + 1) * CHAR_POINTER_LENGTH;
+    char *next_member = buffer + ptr_area_size;
+    buflen -= ptr_area_size;
     // // // Loop over the json array to extract values into members array
-    // int i;
-    // for (i = 0; i < member_count; i++)
-    // {
-    //     jvalue = json_object_array_get_idx(_mems_array, i);
-    //     int member_length = json_object_array_length(jvalue) + 1;
-    //     if (buflen < member_count)
-    //     {
-    //         *errnop = ERANGE;
-    //         retval = NSS_STATUS_TRYAGAIN;
-    //         goto cleanup;
-    //     }
-    //     strcpy(next_member, json_object_get_string(jvalue));
-    //     ptr_area[i] = next_member;
-    //     buflen -= member_length;
-    //     next_member += member_length;
-    // }
-    // ptr_area[i] = NULL;
+    int i;
+    for (i = 0; i < member_count; i++)
+    {
+        jvalue = json_object_array_get_idx(_mems_array, i);
+        int member_length = strlen(json_object_get_string(jvalue)) + 1;
+        if (buflen < member_count)
+        {
+            *errnop = ERANGE;
+            retval = NSS_STATUS_TRYAGAIN;
+            goto cleanup;
+        }
+        strcpy(next_member, json_object_get_string(jvalue));
+        ptr_area[i] = next_member;
+        buflen -= member_length;
+        next_member += member_length;
+    }
+    ptr_area[i] = NULL;
 
-    // result->gr_mem = (char **)buffer;
+    result->gr_mem = (char **)buffer;
 
     retval = NSS_STATUS_SUCCESS;
 cleanup:
