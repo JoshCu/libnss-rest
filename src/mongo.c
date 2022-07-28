@@ -11,6 +11,8 @@
 
 #define CURL_VERBOSE 1
 #define CONFIG_FILE "/etc/security/mongonss.conf"
+#define CHAR_POINTER_LENGTH sizeof(char *)
+#define DATA_FIXED_LENGTH 58
 
 // Structure to hold the response the curl command
 struct curl_output
@@ -41,7 +43,7 @@ static size_t writecallback(void *contents, size_t size, size_t nmemb, void *use
 }
 
 // Takes the query part of the url and returns the response data
-// e.g. pass in user/name/jc1104039 
+// e.g. pass in user/name/jc1104039
 // DO NOT include a '/' prefix
 char *handle_url(char *url_suffix)
 {
@@ -50,33 +52,41 @@ char *handle_url(char *url_suffix)
     const char *api_url, *username, *password;
     // Initiate config parser
     config_init(&config);
-    if(!config_read_file(&config, CONFIG_FILE)) {
+    if (!config_read_file(&config, CONFIG_FILE))
+    {
         syslog(LOG_ERR, "%s:%d - %s", config_error_file(&config), config_error_line(&config), config_error_text(&config));
         goto cleanup;
     }
 
-    if (!config_lookup_string(&config, "api_url", &api_url)) {
+    if (!config_lookup_string(&config, "api_url", &api_url))
+    {
         syslog(LOG_ERR, "No 'api_url' setting in configuration file.");
         goto cleanup;
     }
 
-    if (!config_lookup_string(&config, "username", &username)) {
+    if (!config_lookup_string(&config, "username", &username))
+    {
         syslog(LOG_ERR, "No 'username' setting in configuration file.");
         goto cleanup;
     }
 
-    if (!config_lookup_string(&config, "password", &password)) {
+    if (!config_lookup_string(&config, "password", &password))
+    {
         syslog(LOG_ERR, "No 'password' setting in configuration file.");
         goto cleanup;
     }
     // Config loading done
-
+    long response_code;
     // Create query url
     char url[1024] = "";
     strcat(url, api_url);
     strcat(url, url_suffix);
-    
+
     syslog(LOG_INFO, "query url : %s", url);
+
+    CURLcode res;
+    CURL *curl;
+    curl = curl_easy_init();
 
     struct curl_output data;
     data.size = 0;
@@ -88,10 +98,6 @@ char *handle_url(char *url_suffix)
         goto cleanup;
     }
 
-    data.memory[0] = '\0';
-    CURLcode res;
-    CURL *curl;
-    curl = curl_easy_init();
     if (curl)
     {
         curl_easy_setopt(curl, CURLOPT_URL, url);
@@ -101,26 +107,200 @@ char *handle_url(char *url_suffix)
         curl_easy_setopt(curl, CURLOPT_PASSWORD, password);
         res = curl_easy_perform(curl);
         syslog(LOG_INFO, "curl response : %d", res);
+        syslog(LOG_INFO, "size : %d", data.size);
         // This response is not a http status code
-        // It's just from the curl command library 
+        // It's just from the curl command library
         // Https://github.com/curl/curl/blob/master/include/curl/curl.h
         if (res != CURLE_OK)
         {
             fprintf(stderr, "curl_easy_perform() failed: %s\n",
                     curl_easy_strerror(res));
         }
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
+        syslog(LOG_INFO, "response code  : %d", response_code);
+        // TODO if 500 should really try again once
+        //  I've seen the server 500 for unrelated reasons
+        if (response_code != 200)
+        {
+            data.memory = NULL;
+        }
+
         curl_easy_cleanup(curl);
     }
-    closelog();
+    // This could do with some improving,
+    // Also data should really be freed up here
     config_destroy(&config);
     return data.memory;
 cleanup:
-    closelog();
     config_destroy(&config);
-    // Curling the api returns string "null" when no user is found
-    // We must also return string null to match behaviour when config is broken
-    return "null";
+    return NULL;
+}
 
+enum nss_status populate_user_data(char *data, struct passwd *result, char *buffer, size_t buflen, int *errnop)
+{
+    int retval;
+    // Delare json objects for each variable
+    struct json_object *parsed_json;
+    struct json_object *_name;
+    struct json_object *_passwd;
+    struct json_object *_uid;
+    struct json_object *_gid;
+    struct json_object *_gecos;
+    struct json_object *_dir;
+    struct json_object *_shell;
+
+    parsed_json = json_tokener_parse(data);
+    // Import values into json objects
+    json_object_object_get_ex(parsed_json, "pw_name", &_name);
+    json_object_object_get_ex(parsed_json, "pw_passwd", &_passwd);
+    json_object_object_get_ex(parsed_json, "pw_uid", &_uid);
+    json_object_object_get_ex(parsed_json, "pw_gid", &_gid);
+    json_object_object_get_ex(parsed_json, "pw_gecos", &_gecos);
+    json_object_object_get_ex(parsed_json, "pw_dir", &_dir);
+    json_object_object_get_ex(parsed_json, "pw_shell", &_shell);
+
+    result->pw_uid = json_object_get_int(_uid);
+    result->pw_gid = json_object_get_int(_gid);
+
+    int name_length = strlen((char *)json_object_get_string(_name)) + 1;
+    int passwd_length = strlen((char *)json_object_get_string(_passwd)) + 1;
+    int gecos_length = strlen((char *)json_object_get_string(_gecos)) + 1;
+    int dir_length = strlen((char *)json_object_get_string(_dir)) + 1;
+    int shell_length = strlen((char *)json_object_get_string(_shell)) + 1;
+
+    int total_length = name_length + passwd_length + gecos_length + dir_length + shell_length;
+
+    if (buflen < total_length)
+    {
+        *errnop = ERANGE;
+        retval = NSS_STATUS_TRYAGAIN;
+        goto cleanup;
+    }
+
+    strcpy(buffer, json_object_get_string(_name));
+    result->pw_name = buffer;
+    buffer += name_length;
+    strcpy(buffer, json_object_get_string(_passwd));
+    result->pw_passwd = buffer;
+    buffer += passwd_length;
+    strcpy(buffer, json_object_get_string(_gecos));
+    result->pw_gecos = buffer;
+    buffer += gecos_length;
+    strcpy(buffer, json_object_get_string(_dir));
+    result->pw_dir = buffer;
+    buffer += dir_length;
+    strcpy(buffer, json_object_get_string(_shell));
+    result->pw_shell = buffer;
+    retval = NSS_STATUS_SUCCESS;
+cleanup:
+    json_object_put(parsed_json);
+    json_object_put(_name);
+    json_object_put(_passwd);
+    json_object_put(_uid);
+    json_object_put(_gid);
+    json_object_put(_gecos);
+    json_object_put(_dir);
+    json_object_put(_shell);
+    return retval;
+}
+
+enum nss_status populate_group_data(char *data, struct group *result, char *buffer, size_t buflen, int *errnop)
+{
+    syslog(LOG_INFO, "populate_group_data ");
+    syslog(LOG_INFO, "buflen : %d,", buflen);
+    int retval;
+    // Delare json objects for each variable
+    struct json_object *parsed_json;
+    struct json_object *_name;
+    struct json_object *_passwd;
+    struct json_object *_gid;
+    struct json_object *_mems_array;
+    parsed_json = json_tokener_parse(data);
+    syslog(LOG_INFO, "json data response length  : %d", strlen(data));
+    // Import values into json objects
+    json_object_object_get_ex(parsed_json, "gr_name", &_name);
+    json_object_object_get_ex(parsed_json, "gr_mem", &_mems_array);
+    json_object_object_get_ex(parsed_json, "gr_passwd", &_passwd);
+    json_object_object_get_ex(parsed_json, "gr_gid", &_gid);
+
+    int name_length = strlen((char *)json_object_get_string(_name)) + 1;
+    int passwd_length = strlen((char *)json_object_get_string(_passwd)) + 1;
+    int total_length = name_length + passwd_length;
+
+    if (buflen < total_length)
+    {
+        *errnop = ERANGE;
+        retval = NSS_STATUS_TRYAGAIN;
+    }
+
+    result->gr_gid = json_object_get_int(_gid);
+
+    strcpy(buffer, json_object_get_string(_name));
+    result->gr_name = buffer;
+    buffer += name_length;
+    strcpy(buffer, json_object_get_string(_passwd));
+    result->gr_passwd = buffer;
+    buffer += passwd_length;
+
+    int member_count = json_object_array_length(_mems_array);
+
+    if (member_count > 0)
+    {
+        char struid[50];
+        sprintf(struid, "%d", json_object_get_int(_gid));
+        int gid_as_str_length = strlen(struid);
+
+        // We want to enter info in the buffer like below, to do that we need to know we have space
+        //__________________________________________________
+        // ...|@1|@2|@3|...|NULL|member1|member2|member3|...
+        // --------------------------------------------------
+        //    ^ gr_mem
+        // We can calculate the memory we need from the length of the data string
+        // {"gr_name": "RB1610093", "gr_passwd": "x", "gr_gid": 1757409, "gr_mem": ["jr1102099", "cb7411", "ww1019511", "jc1104039", "ch1044550", "iw1214"]}
+        // {"gr_name": "", "gr_passwd": "", "gr_gid": , "gr_mem": []} this part is fixed at 58 chars long -> DATA_FIXED_LENGTH
+        //  we know gr_name, gr_passwd and gr_gid length. If subrtact it now we just need to calculate the length of this
+        // "jr1102099", "cb7411", "ww1019511", "jc1104039", "ch1044550", "iw1214"
+        // now we need to subrtact the ", " which is four characters per member then - 2
+        // we need to add space for a null byte after each member so it's actually
+        // three characters per member then -2. The example above gives us 54 characters for the members
+
+        int member_data_length = (member_count * 3) - 2;
+        int ptr_area_size = (member_count + 1) * CHAR_POINTER_LENGTH;
+        int needed_memory = strlen(data) - DATA_FIXED_LENGTH - (name_length - 1) - (passwd_length - 1) - gid_as_str_length - member_data_length;
+        total_length += ptr_area_size + sizeof(NULL) + needed_memory;
+
+        if (buflen < total_length)
+        {
+            *errnop = ERANGE;
+            retval = NSS_STATUS_TRYAGAIN;
+        }
+        // ARRAY FUN BELOW
+        char **ptr_area = (char **)buffer;
+        char *next_member = buffer + ptr_area_size;
+        //  Temporary json object to hold an entry at a given index in the array
+        struct json_object *jvalue;
+        // Loop over the json array to store
+        int i;
+        for (i = 0; i < member_count; i++)
+        {
+            jvalue = json_object_array_get_idx(_mems_array, i);
+            int member_length = strlen(json_object_get_string(jvalue)) + 1;
+            strcpy(next_member, json_object_get_string(jvalue));
+            ptr_area[i] = next_member;
+            next_member += member_length;
+        }
+        ptr_area[i] = NULL;
+        result->gr_mem = (char **)buffer;
+    }
+
+    retval = NSS_STATUS_SUCCESS;
+cleanup:
+    json_object_put(parsed_json);
+    json_object_put(_name);
+    json_object_put(_passwd);
+    json_object_put(_gid);
+    json_object_put(_mems_array);
+    return retval;
 }
 
 // Name : string representation of a user's name e.g. jc1104039
@@ -137,55 +317,19 @@ enum nss_status _nss_mongo_getpwnam_r(const char *name, struct passwd *result, c
     char url[1024] = "users/name/";
     strcat(url, name);
 
-    // Create a temporary user struct
-    struct passwd TempUser;
     char *data;
-
     data = handle_url(url);
     syslog(LOG_INFO, "response: %s", data);
 
-    if (strcmp(data, "null"))
+    if (data != NULL)
     {
-        // Delare json objects for each variable
-        struct json_object *parsed_json;
-        parsed_json = json_tokener_parse(data);
-        struct json_object *_name;
-        struct json_object *_passwd;
-        struct json_object *_uid;
-        struct json_object *_gid;
-        struct json_object *_gecos;
-        struct json_object *_dir;
-        struct json_object *_shell;
-
-        // Import values into json objects
-        json_object_object_get_ex(parsed_json, "pw_name", &_name);
-        json_object_object_get_ex(parsed_json, "pw_passwd", &_passwd);
-        json_object_object_get_ex(parsed_json, "pw_uid", &_uid);
-        json_object_object_get_ex(parsed_json, "pw_gid", &_gid);
-        json_object_object_get_ex(parsed_json, "pw_gecos", &_gecos);
-        json_object_object_get_ex(parsed_json, "pw_dir", &_dir);
-        json_object_object_get_ex(parsed_json, "pw_shell", &_shell);
-
-        // Fill out temporary user struct
-        // (void *) trickery because json object returns are constants
-        TempUser.pw_name = (void *)json_object_get_string(_name);
-        TempUser.pw_passwd = (void *)json_object_get_string(_passwd);
-        TempUser.pw_uid = json_object_get_int(_uid);
-        TempUser.pw_gid = json_object_get_int(_gid);
-        TempUser.pw_gecos = (void *)json_object_get_string(_gecos);
-        TempUser.pw_dir = (void *)json_object_get_string(_dir);
-        TempUser.pw_shell = (void *)json_object_get_string(_shell);
-
-        // Create a pointer to the temporary user
-        // Then make result pointer point to temporary pointer location
-        // Frazer pls fix this
-        struct passwd *ptrTempUser = &TempUser;
-        *result = *ptrTempUser;
-        retval = NSS_STATUS_SUCCESS;
+        retval = populate_user_data(data, result, buffer, buflen, errnop);
         goto cleanup;
     }
     retval = NSS_STATUS_NOTFOUND;
+
 cleanup:
+    free(data);
     closelog();
     return retval;
 }
@@ -206,51 +350,19 @@ enum nss_status _nss_mongo_getpwuid_r(__uid_t uid, struct passwd *result, char *
     char url[1024] = "users/id/";
     strcat(url, struid);
 
-    struct passwd TempUser;
     char *data;
-
     data = handle_url(url);
     syslog(LOG_INFO, "response: %s", data);
-    if (strcmp(data, "null"))
+
+    if (data != NULL)
     {
-        // Delare json objects for each variable
-        struct json_object *parsed_json;
-        parsed_json = json_tokener_parse(data);
-        struct json_object *_name;
-        struct json_object *_passwd;
-        struct json_object *_uid;
-        struct json_object *_gid;
-        struct json_object *_gecos;
-        struct json_object *_dir;
-        struct json_object *_shell;
-
-        // Import values into json objects
-        json_object_object_get_ex(parsed_json, "pw_name", &_name);
-        json_object_object_get_ex(parsed_json, "pw_passwd", &_passwd);
-        json_object_object_get_ex(parsed_json, "pw_uid", &_uid);
-        json_object_object_get_ex(parsed_json, "pw_gid", &_gid);
-        json_object_object_get_ex(parsed_json, "pw_gecos", &_gecos);
-        json_object_object_get_ex(parsed_json, "pw_dir", &_dir);
-        json_object_object_get_ex(parsed_json, "pw_shell", &_shell);
-
-        // Fill out temporary user struct
-        // (void *) trickery because json object returns are constants
-        TempUser.pw_name = (void *)json_object_get_string(_name);
-        TempUser.pw_passwd = (void *)json_object_get_string(_passwd);
-        TempUser.pw_uid = json_object_get_int(_uid);
-        TempUser.pw_gid = json_object_get_int(_gid);
-        TempUser.pw_gecos = (void *)json_object_get_string(_gecos);
-        TempUser.pw_dir = (void *)json_object_get_string(_dir);
-        TempUser.pw_shell = (void *)json_object_get_string(_shell);
-
-        // Frazer pls fix this
-        struct passwd *ptrTempUser = &TempUser;
-        *result = *ptrTempUser;
-        retval = NSS_STATUS_SUCCESS;
+        retval = populate_user_data(data, result, buffer, buflen, errnop);
         goto cleanup;
     }
     retval = NSS_STATUS_NOTFOUND;
+
 cleanup:
+    free(data);
     closelog();
     return retval;
 }
@@ -269,60 +381,19 @@ enum nss_status _nss_mongo_getgrnam_r(const char *name, struct group *result, ch
     char url[1024] = "groups/name/";
     strcat(url, name);
 
-    struct group fakeGroup;
     char *data;
-    char **members = malloc(4096);
-
     data = handle_url(url);
     syslog(LOG_INFO, "response: %s", data);
-    if (strcmp(data, "null"))
+
+    if (data != NULL)
     {
-        // Delare json objects for each variable
-        struct json_object *parsed_json;
-        parsed_json = json_tokener_parse(data);
-        struct json_object *_name;
-        struct json_object *_passwd;
-        struct json_object *_gid;
-        struct json_object *_mems_array;
-
-        // Import values into json object
-        json_object_object_get_ex(parsed_json, "gr_mem", &_mems_array);
-
-        // Get the number of members returned and create an array of that size
-        int member_count = json_object_array_length(_mems_array);
-
-        // Temporary json object to hold an entry at a given index in the array
-        struct json_object * jvalue;
-
-        // Loop over the json array to extract values into members array
-        int i;
-        for (i=0; i< member_count; i++){
-            jvalue = json_object_array_get_idx(_mems_array, i);
-            members[i] = malloc(strlen(json_object_get_string(jvalue)) + 1);
-            strcpy(members[i],json_object_get_string(jvalue));
-        }
-
-        // Import values into json objects
-        json_object_object_get_ex(parsed_json, "gr_name", &_name);
-        json_object_object_get_ex(parsed_json, "gr_passwd", &_passwd);
-        json_object_object_get_ex(parsed_json, "gr_gid", &_gid);
-
-        // Fill out temporary user struct
-        // (void *) trickery because json object returns are constants
-        fakeGroup.gr_name = (void *)json_object_get_string(_name);
-        fakeGroup.gr_passwd = (void *)json_object_get_string(_passwd);
-        fakeGroup.gr_gid = json_object_get_int(_gid);
-        fakeGroup.gr_mem = members;
-
-        // Frazer pls fix this
-        struct group *ptrfakeGroup = &fakeGroup;
-        *result = *ptrfakeGroup;
-        retval = NSS_STATUS_SUCCESS;
+        retval = populate_group_data(data, result, buffer, buflen, errnop);
         goto cleanup;
     }
 
     retval = NSS_STATUS_NOTFOUND;
 cleanup:
+    free(data);
     closelog();
     return retval;
 }
@@ -343,60 +414,19 @@ enum nss_status _nss_mongo_getgrgid_r(__gid_t gid, struct group *result, char *b
     char url[1024] = "groups/id/";
     strcat(url, struid);
 
-    struct group fakeGroup;
     char *data;
-    char **members = malloc(4096);
-
     data = handle_url(url);
     syslog(LOG_INFO, "response: %s", data);
-    if (strcmp(data, "null"))
+
+    if (data != NULL)
     {
-        // Delare json objects for each variable
-        struct json_object *parsed_json;
-        parsed_json = json_tokener_parse(data);
-        struct json_object *_name;
-        struct json_object *_passwd;
-        struct json_object *_gid;
-        struct json_object *_mems_array;
-
-        // Import values into json object
-        json_object_object_get_ex(parsed_json, "gr_mem", &_mems_array);
-
-        // Get the number of members returned and create an array of that size
-        int member_count = json_object_array_length(_mems_array);
-
-        // Temporary json object to hold an entry at a given index in the array
-        struct json_object * jvalue;
-
-        // Loop over the json array to extract values into members array
-        int i;
-        for (i=0; i< member_count; i++){
-            jvalue = json_object_array_get_idx(_mems_array, i);
-            members[i] = malloc(strlen(json_object_get_string(jvalue)) + 1);
-            strcpy(members[i],json_object_get_string(jvalue));
-        }
-
-        // Import values into json objects
-        json_object_object_get_ex(parsed_json, "gr_name", &_name);
-        json_object_object_get_ex(parsed_json, "gr_passwd", &_passwd);
-        json_object_object_get_ex(parsed_json, "gr_gid", &_gid);
-
-        // Fill out temporary user struct
-        // (void *) trickery because json object returns are constants
-        fakeGroup.gr_name = (void *)json_object_get_string(_name);
-        fakeGroup.gr_passwd = (void *)json_object_get_string(_passwd);
-        fakeGroup.gr_gid = json_object_get_int(_gid);
-        fakeGroup.gr_mem = members;
-
-        // Frazer pls fix this
-        struct group *ptrfakeGroup = &fakeGroup;
-        *result = *ptrfakeGroup;
-        retval = NSS_STATUS_SUCCESS;
+        retval = populate_group_data(data, result, buffer, buflen, errnop);
         goto cleanup;
     }
 
     retval = NSS_STATUS_NOTFOUND;
 cleanup:
+    free(data);
     closelog();
     return retval;
 }
@@ -424,7 +454,7 @@ enum nss_status _nss_mongo_initgroups_dyn(const char *user, gid_t group, long in
     openlog("mongo_nss", LOG_CONS | LOG_PID | LOG_NDELAY, LOG_LOCAL1);
     syslog(LOG_INFO, "initgroups_dyn");
     syslog(LOG_INFO, "user_name : %s,", user);
-    
+
     char url[1024] = "usergroups/";
     strcat(url, user);
 
@@ -447,39 +477,48 @@ enum nss_status _nss_mongo_initgroups_dyn(const char *user, gid_t group, long in
         int gids[group_count];
 
         // Temporary json object to hold an entry at a given index in the array
-        struct json_object * jvalue;
+        struct json_object *jvalue;
 
         // Loop over the json array to extract values into gids array
         int i;
-        for (i=0; i< group_count; i++){
+        for (i = 0; i < group_count; i++)
+        {
             jvalue = json_object_array_get_idx(_gids_array, i);
             gids[i] = json_object_get_int(jvalue);
         }
 
         // Add every gid from our local gids array into the passed in groups array
         int counter = 0;
-        while (counter <= group_count - 1){
-        syslog(LOG_DEBUG, "initgroups_dyn: adding group %d\n", gids[counter]);
-        /* Too short, doubling size */
-        if(*start == *size) {
-            if(limit > 0) {
-                if(*size < limit) {
-                    *size = (limit < (*size * 2)) ? limit : (*size * 2);
-                } else {
-                    /* limit reached, tell caller to try with a bigger one */
-                    syslog(LOG_ERR, "initgroups_dyn: limit was too low\n");
-                    *errnop = ERANGE;
-                    return NSS_STATUS_TRYAGAIN;
+        while (counter <= group_count - 1)
+        {
+            syslog(LOG_DEBUG, "initgroups_dyn: adding group %d\n", gids[counter]);
+            /* Too short, doubling size */
+            if (*start == *size)
+            {
+                if (limit > 0)
+                {
+                    if (*size < limit)
+                    {
+                        *size = (limit < (*size * 2)) ? limit : (*size * 2);
+                    }
+                    else
+                    {
+                        /* limit reached, tell caller to try with a bigger one */
+                        syslog(LOG_ERR, "initgroups_dyn: limit was too low\n");
+                        *errnop = ERANGE;
+                        return NSS_STATUS_TRYAGAIN;
+                    }
                 }
-            } else {
-                (*size) = (*size) * 2;
+                else
+                {
+                    (*size) = (*size) * 2;
+                }
+                // Trim the groups array allocated memory back down to size
+                *groups = realloc(*groups, sizeof(**groups) * (*size));
             }
-            // Trim the groups array allocated memory back down to size
-            *groups = realloc(*groups, sizeof(**groups) * (*size));
-        }
-        (*groups)[*start] = gids[counter];
-        (*start)++;
-        counter++;
+            (*groups)[*start] = gids[counter];
+            (*start)++;
+            counter++;
         }
 
         // Trim the groups array allocated memory back down to size
