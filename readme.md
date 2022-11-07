@@ -1,4 +1,4 @@
-# Mongo NSS module
+# REST NSS module
 This module allows linux to fetch user and group data from any web api that matches the right specification
 
 ## Development
